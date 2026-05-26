@@ -9,20 +9,30 @@ const SESSIONS = {
   'Market Closed': { label: 'Closed', color: 'text-muted' },
 }
 
-export default function MarketStatus({ lastUpdated }) {
+export default function MarketStatus() {
   const [status, setStatus] = useState(null)
+  const [now, setNow] = useState(new Date())
 
   useEffect(() => {
-    fetchMarketStatus()
-      .then(d => {
-        const markets = d.marketState || []
-        const nse = markets.find(m => m.market === 'Capital Market') || markets[0]
-        setStatus(nse)
-      })
-      .catch(() => setStatus(null))
-  }, [lastUpdated])
+    const clockId = setInterval(() => setNow(new Date()), 1000)
+    return () => clearInterval(clockId)
+  }, [])
 
-  const now = new Date()
+  useEffect(() => {
+    function load() {
+      fetchMarketStatus()
+        .then(d => {
+          const markets = d.marketState || []
+          const nse = markets.find(m => m.market === 'Capital Market') || markets[0]
+          setStatus(nse)
+        })
+        .catch(() => {})
+    }
+    load()
+    const id = setInterval(load, 5 * 60 * 1000)
+    return () => clearInterval(id)
+  }, [])
+
   const timeStr = now.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
 
   const session = status ? (SESSIONS[status.marketStatus] || { label: status.marketStatus, color: 'text-accent' }) : null

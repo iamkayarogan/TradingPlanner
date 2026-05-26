@@ -1,18 +1,13 @@
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { getSession, signOut } from './services/localAuth'
 import MarketStatus from './components/MarketStatus'
 import RiskPlanner, { useRiskPlanner } from './components/RiskPlanner'
+import TopMovers from './components/TopMovers'
 import AuthModal from './components/AuthModal'
 
 function AppContent({ user, onLogout }) {
-  const [tick, setTick] = useState(0)
   const { settings, setSettings, positions, addPosition, removePosition, updatePosition } =
     useRiskPlanner(user.id)
-
-  useEffect(() => {
-    const id = setInterval(() => setTick(t => t + 1), 1000)
-    return () => clearInterval(id)
-  }, [])
 
   return (
     <div className="min-h-screen bg-bg text-gray-200">
@@ -22,7 +17,7 @@ function AppContent({ user, onLogout }) {
           <span className="text-accent font-bold text-lg tracking-tight">⚡ TradingPlanner</span>
 
           <div className="flex items-center gap-3">
-            <MarketStatus lastUpdated={tick} />
+            <MarketStatus />
 
             {/* User info + logout */}
             <div className="flex items-center gap-2 border-l border-border pl-3 ml-1">
@@ -40,6 +35,7 @@ function AppContent({ user, onLogout }) {
 
       {/* Main */}
       <main className="max-w-screen-xl mx-auto px-4 py-6">
+        <TopMovers />
         <RiskPlanner
           positions={positions}
           settings={settings}

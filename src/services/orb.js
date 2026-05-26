@@ -81,3 +81,34 @@ export async function fetchLivePrice(symbol) {
   }
   return null
 }
+
+// ── ORB candles: high & low of the 9:15–9:25 AM IST opening range ─────────────
+// Yahoo timestamps are UTC. 9:15 IST = 3:45 UTC (225 min), 9:25 IST = 3:55 UTC (235 min)
+export async function fetchOrbCandles(symbol) {
+  const data = await yahooFetch(symbol, '5m', '1d')
+  const result = data?.chart?.result?.[0]
+  if (!result) return null
+
+  const ts = result.timestamp || []
+  const q  = result.indicators?.quote?.[0] || {}
+
+  const orbCandles = []
+  for (let i = 0; i < ts.length; i++) {
+    const d      = new Date(ts[i] * 1000)
+    const utcMin = d.getUTCHours() * 60 + d.getUTCMinutes()
+    // 3:45–3:55 UTC = 9:15–9:25 IST (first two 5-min candles of the session)
+    if (utcMin >= 225 && utcMin < 235) {
+      const h = q.high?.[i], l = q.low?.[i]
+      if (h != null && l != null && isFinite(h) && isFinite(l) && h > 0 && l > 0) {
+        orbCandles.push({ high: h, low: l })
+      }
+    }
+  }
+
+  if (!orbCandles.length) return null
+
+  return {
+    orbHigh: Math.max(...orbCandles.map(c => c.high)),
+    orbLow:  Math.min(...orbCandles.map(c => c.low)),
+  }
+}
