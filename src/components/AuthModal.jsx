@@ -1,56 +1,31 @@
 import { useState } from 'react'
-import { supabase } from '../services/supabase'
+import { signUp, signIn } from '../services/localAuth'
 
-export default function AuthModal() {
-  const [mode,     setMode]     = useState('signup')  // 'login' | 'signup'
+export default function AuthModal({ onAuth }) {
+  const [mode,     setMode]     = useState('signup')
   const [name,     setName]     = useState('')
   const [email,    setEmail]    = useState('')
   const [password, setPassword] = useState('')
   const [loading,  setLoading]  = useState(false)
   const [error,    setError]    = useState('')
-  const [info,     setInfo]     = useState('')
 
   async function handleSubmit(e) {
     e.preventDefault()
     setError('')
-    setInfo('')
     setLoading(true)
     try {
-      if (mode === 'signup') {
-        const { error: err } = await supabase.auth.signUp({
-          email,
-          password,
-          options: { data: { full_name: name.trim() } },
-        })
-        if (err) throw err
-        setInfo('Account created! You are now logged in.')
-      } else {
-        const { error: err } = await supabase.auth.signInWithPassword({ email, password })
-        if (err) throw err
-        // onAuthStateChange in App.jsx picks up the session automatically
-      }
+      const session = mode === 'signup'
+        ? await signUp({ name, email, password })
+        : await signIn({ email, password })
+      onAuth(session)
     } catch (err) {
-      setError(friendlyError(err.message))
+      setError(err.message)
     } finally {
       setLoading(false)
     }
   }
 
-  function friendlyError(msg) {
-    if (msg.includes('already registered') || msg.includes('already been registered'))
-      return 'Email already registered. Try logging in.'
-    if (msg.includes('Invalid login') || msg.includes('invalid_credentials') || msg.includes('Invalid email or password'))
-      return 'Incorrect email or password.'
-    if (msg.includes('Password should be'))
-      return 'Password must be at least 6 characters.'
-    if (msg.includes('Unable to validate') || msg.includes('invalid email'))
-      return 'Invalid email address.'
-    if (msg.includes('rate limit') || msg.includes('too many'))
-      return 'Too many attempts. Please wait a moment.'
-    return msg || 'Something went wrong. Try again.'
-  }
-
-  function switchMode(m) { setMode(m); setError(''); setInfo('') }
+  function switchMode(m) { setMode(m); setError('') }
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm px-4">
@@ -59,7 +34,7 @@ export default function AuthModal() {
         {/* Header */}
         <div className="px-6 pt-6 pb-4 border-b border-border">
           <div className="text-accent font-bold text-lg tracking-tight mb-0.5">⚡ TradingPlanner</div>
-          <div className="text-muted text-[11px]">Sign in to sync positions across all your browsers</div>
+          <div className="text-muted text-[11px]">Your data is stored locally on this device</div>
         </div>
 
         {/* Toggle */}
@@ -81,7 +56,7 @@ export default function AuthModal() {
           {mode === 'signup' && (
             <div>
               <label className="text-[10px] text-muted block mb-1">Name</label>
-              <input type="text" value={name} placeholder="Your name"
+              <input type="text" value={name} placeholder="Your name" required
                 onChange={e => setName(e.target.value)}
                 className="w-full bg-gray-900 border border-border rounded px-3 py-2 text-xs text-white focus:outline-none focus:border-accent placeholder:text-gray-600" />
             </div>
@@ -107,11 +82,6 @@ export default function AuthModal() {
           {error && (
             <div className="text-[11px] text-red-400 bg-red-950/30 border border-red-800/40 rounded px-3 py-2">
               ⚠ {error}
-            </div>
-          )}
-          {info && (
-            <div className="text-[11px] text-emerald-400 bg-emerald-950/30 border border-emerald-800/40 rounded px-3 py-2">
-              ✓ {info}
             </div>
           )}
 

@@ -1,28 +1,31 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { fetchSymbolInfo, fetchLivePrice, fetchGapInfo } from '../services/orb'
-import { supabase } from '../services/supabase'
 
-// ── Persistence ───────────────────────────────────────────────────────────────
+// ── Persistence (per-user localStorage keys) ──────────────────────────────────
 const DEFAULTS = { dailyLossLimit: 2000, maxPositions: 3 }
 
 function todayKey() { return new Date().toISOString().slice(0, 10) }
 
-function loadSettings() {
-  try { return { ...DEFAULTS, ...JSON.parse(localStorage.getItem('rp2_settings') || '{}') } }
+function posKey(uid)  { return uid ? `rp_pos_${uid}`  : 'rp_pos_guest' }
+function setKey(uid)  { return uid ? `rp_set_${uid}`  : 'rp_set_guest' }
+
+function loadSettings(uid) {
+  try { return { ...DEFAULTS, ...JSON.parse(localStorage.getItem(setKey(uid)) || '{}') } }
   catch { return { ...DEFAULTS } }
 }
 
-function loadPositions() {
-  try { return JSON.parse(localStorage.getItem('rp2_positions') || '{}')?.[todayKey()] || [] }
+function loadPositions(uid) {
+  try { return JSON.parse(localStorage.getItem(posKey(uid)) || '{}')?.[todayKey()] || [] }
   catch { return [] }
 }
 
-function persistPositions(pos) {
+function persistPositions(uid, pos) {
   try {
-    const all = JSON.parse(localStorage.getItem('rp2_positions') || '{}')
+    const key    = posKey(uid)
+    const all    = JSON.parse(localStorage.getItem(key) || '{}')
     all[todayKey()] = pos
     const pruned = Object.fromEntries(Object.keys(all).sort().slice(-7).map(k => [k, all[k]]))
-    localStorage.setItem('rp2_positions', JSON.stringify(pruned))
+    localStorage.setItem(key, JSON.stringify(pruned))
   } catch { /* ignore */ }
 }
 
@@ -44,90 +47,24 @@ function rrLabel(risk, reward) {
   return `1 : ${(reward / risk).toFixed(2)}`
 }
 
-// ── Supabase helpers ──────────────────────────────────────────────────────────
-async function sbLoad(userId) {
-  const { data } = await supabase
-    .from('trading_sessions')
-    .select('positions_data, settings_data')
-    .eq('user_id', userId)
-    .eq('date', todayKey())
-    .maybeSingle()
-  return data
-}
-
-async function sbSave(userId, positions, settings) {
-  await supabase.from('trading_sessions').upsert({
-    user_id:       userId,
-    date:          todayKey(),
-    positions_data: positions,
-    settings_data:  settings,
-    updated_at:    new Date().toISOString(),
-  }, { onConflict: 'user_id,date' })
-}
-
 // ── Hook ─────────────────────────────────────────────────────────────────────
 export function useRiskPlanner(userId = null) {
-  const [settings,  setSettings]  = useState(loadSettings)
-  const [positions, setPositions] = useState(loadPositions)
-  const [syncing,   setSyncing]   = useState(false)
-  const remoteWriting = useRef(false)
+  const [settings,  setSettings]  = useState(() => loadSettings(userId))
+  const [positions, setPositions] = useState(() => loadPositions(userId))
 
-  // ── Load from Supabase when user logs in ──────────────────────
+  // Reload when user switches (login / logout)
   useEffect(() => {
-    if (!userId) return
-    sbLoad(userId).then(data => {
-      if (data?.positions_data) {
-        setPositions(data.positions_data)
-        persistPositions(data.positions_data)
-      }
-      if (data?.settings_data) {
-        setSettings(s => ({ ...s, ...data.settings_data }))
-      }
-    })
+    setSettings(loadSettings(userId))
+    setPositions(loadPositions(userId))
   }, [userId])
 
-  // ── Real-time sync: listen for changes from other browsers ────
   useEffect(() => {
-    if (!userId) return
-    const channel = supabase
-      .channel(`session-${userId}`)
-      .on('postgres_changes', {
-        event:  '*',
-        schema: 'public',
-        table:  'trading_sessions',
-        filter: `user_id=eq.${userId}`,
-      }, payload => {
-        if (remoteWriting.current) return  // ignore our own writes
-        const d = payload.new
-        if (d?.positions_data) {
-          setPositions(d.positions_data)
-          persistPositions(d.positions_data)
-        }
-      })
-      .subscribe()
-    return () => supabase.removeChannel(channel)
-  }, [userId])
+    localStorage.setItem(setKey(userId), JSON.stringify(settings))
+  }, [settings, userId])
 
-  // ── Save positions (localStorage + Supabase) ──────────────────
   useEffect(() => {
-    persistPositions(positions)
-    if (!userId) return
-    remoteWriting.current = true
-    setSyncing(true)
-    sbSave(userId, positions, settings)
-      .catch(console.error)
-      .finally(() => {
-        setSyncing(false)
-        setTimeout(() => { remoteWriting.current = false }, 600)
-      })
-  }, [positions])   // eslint-disable-line react-hooks/exhaustive-deps
-
-  // ── Save settings (localStorage + Supabase) ───────────────────
-  useEffect(() => {
-    localStorage.setItem('rp2_settings', JSON.stringify(settings))
-    if (!userId) return
-    sbSave(userId, positions, settings).catch(console.error)
-  }, [settings])    // eslint-disable-line react-hooks/exhaustive-deps
+    persistPositions(userId, positions)
+  }, [positions, userId])
 
   function addPosition(p) {
     setPositions(prev => [...prev, { ...p, id: Date.now() }])
@@ -141,7 +78,7 @@ export function useRiskPlanner(userId = null) {
     setPositions(prev => prev.map(p => p.id === id ? { ...p, ...updates } : p))
   }
 
-  return { settings, setSettings, positions, addPosition, removePosition, updatePosition, syncing }
+  return { settings, setSettings, positions, addPosition, removePosition, updatePosition }
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -1009,7 +946,7 @@ function PositionRow({ p, onRemove, onEdit, isEditing, isTracking, onUpdate }) {
 }
 
 // ── Main component ────────────────────────────────────────────────────────────
-export default function RiskPlanner({ positions, settings, onSettingsChange, onAdd, onRemove, onUpdate }) {
+export default function RiskPlanner({ positions, settings, onSettingsChange, onAdd, onRemove, onUpdate }) {  // eslint-disable-line no-unused-vars
   const [showForm,     setShowForm]     = useState(false)
   const [editingId,    setEditingId]    = useState(null)   // null = adding new
   const [showSettings, setShowSettings] = useState(false)
