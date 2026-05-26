@@ -7,7 +7,7 @@ import {
 import { auth } from '../services/firebase'
 
 export default function AuthModal() {
-  const [mode,     setMode]     = useState('login')   // 'login' | 'signup'
+  const [mode,     setMode]     = useState('signup')  // 'login' | 'signup'
   const [name,     setName]     = useState('')
   const [email,    setEmail]    = useState('')
   const [password, setPassword] = useState('')
