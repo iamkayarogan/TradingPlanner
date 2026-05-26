@@ -1,17 +1,21 @@
-# 📊 TradingTool
+# ⚡ TradingPlanner
 
-A personal intraday trading dashboard for NSE stocks. Built with React + Vite + Tailwind CSS. Runs entirely on your local machine — no server, no database, no cloud.
+A personal intraday trading dashboard for NSE stocks. Built with React + Vite + Tailwind CSS. Runs entirely on your local machine — no server, no database, no cloud, no API keys.
 
 ---
 
 ## Features
 
+- **Sign Up / Log In** — local auth using localStorage + SHA-256 password hashing (no third-party service)
 - **Pre-Open Screener** — fetches NSE pre-open data, scores and ranks stocks by gap, volume, and momentum
-- **Risk Planner** — add positions with entry, SL, target; auto-fills from 15-day average range; shows live P&L
-- **Live Position Tracking** — start tracking with one click; auto-detects SL HIT / Target HIT; activity log per position; manual exit with custom price
-- **Gap Indicator** — shows Gap UP / Gap DOWN % on every stock and position card
+- **Risk Planner** — add positions with entry, SL, target; auto-fills from 15-day average range
 - **5× Margin Helper** — enter your capital → auto-computes quantity via Groww 5× intraday margin
-- **Mini Candlestick Chart** — 15-day price history chart inside the symbol info panel
+- **Gap Indicator** — shows Gap UP / Gap DOWN % on every stock and position card
+- **Live Position Tracking** — click ▶ Start to begin tracking; auto-detects SL HIT / Target HIT with timestamps; manual exit with custom price
+- **Activity Log** — per-position log of every tracking event with time, price, and P&L
+- **Export / Import** — download positions as JSON, import on another browser or machine
+- **Mini Candlestick Chart** — 15-day price history inside the symbol info panel
+- **Per-user data** — each login account has its own isolated positions and settings
 
 ---
 
@@ -21,10 +25,11 @@ A personal intraday trading dashboard for NSE stocks. Built with React + Vite + 
 |---|---|
 | UI | React 18 + Tailwind CSS |
 | Build tool | Vite 5 |
-| Data — Price/History | Yahoo Finance API (proxied) |
-| Data — Pre-open | NSE India API (proxied) |
-| Storage | Browser localStorage (no database) |
+| Auth & Storage | Browser localStorage (SHA-256 via Web Crypto API) |
+| Price / History | Yahoo Finance API (proxied via Vite) |
+| Pre-open data | NSE India API (proxied via Vite) |
 | Backend | None — runs fully local |
+| External accounts | None required |
 
 ---
 
@@ -46,36 +51,24 @@ npm -v    # should show 9.x.x or higher
 
 ### Step 1 — Copy the project
 
-**Option A: Copy folder directly**
-- Copy the entire `TradingTool` folder to the new machine (USB, AirDrop, Google Drive, etc.)
-- Skip the `node_modules` folder — it is large and will be reinstalled
-
-**Option B: Zip and transfer**
+**Option A: Zip and transfer**
 ```bash
-# On the source machine — zip without node_modules
-cd /path/to/
-zip -r TradingTool.zip TradingTool --exclude "TradingTool/node_modules/*"
+# On source machine — zip without node_modules
+zip -r TradingPlanner.zip TradingPlanner --exclude "TradingPlanner/node_modules/*"
 ```
-Then unzip on the new machine.
+Unzip on the new machine.
 
-**Option C: Git (if you use it)**
+**Option B: Git clone**
 ```bash
-git clone <your-repo-url>
-cd TradingTool
+git clone https://github.com/iamkayarogan/TradingPlanner.git
+cd TradingPlanner
 ```
-
----
 
 ### Step 2 — Install dependencies
 
 ```bash
-cd TradingTool
 npm install
 ```
-
-This downloads all required packages into `node_modules/`. Takes 1–2 minutes on first run.
-
----
 
 ### Step 3 — Run the app
 
@@ -88,41 +81,64 @@ Open your browser and go to:
 http://localhost:8443
 ```
 
-The app is ready. Keep the terminal open while using it.
+> If accessing from a remote/cloud environment, use the provided tunnel URL instead.
 
 ---
 
 ## Daily Usage
 
-Every time you want to use the tool:
-
 ```bash
-cd TradingTool
 npm run dev
 ```
 
-Then open `http://localhost:8443` in your browser.
+Open `http://localhost:8443` → log in → trade.
 
 To stop: press `Ctrl + C` in the terminal.
+
+---
+
+## Auth — How It Works
+
+All authentication is handled **locally in the browser**. No external service, no API key, no internet required for login.
+
+| Action | What happens |
+|---|---|
+| **Sign Up** | Name + email + password stored in `localStorage`. Password is SHA-256 hashed using the browser's built-in `crypto.subtle` — never stored as plain text |
+| **Log In** | Password is hashed and compared against the stored hash |
+| **Session** | Saved in `localStorage` — you stay logged in across page reloads and browser restarts |
+| **Log Out** | Session cleared — next visit shows the login screen |
+| **Multiple users** | Each account's positions and settings are stored separately (keyed by user ID) |
+
+> **Important:** Credentials are stored in the browser's localStorage on this machine only. Clearing browser data will erase them.
+
+---
+
+## Moving Data Between Browsers / Machines
+
+Since data is stored locally, it does **not** sync automatically across browsers. Use Export / Import:
+
+1. **On Browser A** → click **↓ Export** in the Risk Planner header → saves `risk-planner-YYYY-MM-DD.json`
+2. **On Browser B** → click **↑ Import** → select the file → positions load instantly
 
 ---
 
 ## Project Structure
 
 ```
-TradingTool/
+TradingPlanner/
 ├── src/
-│   ├── App.jsx                  # Root component — wires everything together
-│   ├── main.jsx                 # React entry point
-│   ├── index.css                # Global styles (Tailwind)
+│   ├── App.jsx                    # Root — auth state, layout
+│   ├── main.jsx                   # React entry point
+│   ├── index.css                  # Global styles (Tailwind)
 │   ├── components/
-│   │   ├── RiskPlanner.jsx      # Risk Planner + Position Tracker
-│   │   ├── MarketStatus.jsx     # Market open/close status bar
-│   │   └── (other components)
+│   │   ├── RiskPlanner.jsx        # Risk Planner + Position Tracker
+│   │   ├── AuthModal.jsx          # Sign Up / Log In modal
+│   │   └── MarketStatus.jsx       # Market open/close status bar
 │   └── services/
-│       ├── orb.js               # Yahoo Finance API calls (price, history, gap)
-│       └── nse.js               # NSE India API calls (pre-open data)
-├── vite.config.js               # Proxy config for Yahoo + NSE APIs
+│       ├── localAuth.js           # Local auth (localStorage + SHA-256)
+│       ├── orb.js                 # Yahoo Finance API calls
+│       └── nse.js                 # NSE India API calls
+├── vite.config.js                 # Port 8443 + proxy config for Yahoo & NSE
 ├── tailwind.config.js
 ├── package.json
 └── index.html
@@ -130,49 +146,45 @@ TradingTool/
 
 ---
 
-## How Data Works
-
-### Yahoo Finance (price data)
-Vite proxies requests through `/yahooapi` → `https://query1.finance.yahoo.com`
-
-- 15-day daily OHLC history → used for average range (SL/Target calculation)
-- Today's intraday 5-min candles → Gap %, today High/Low, open price
-- 1-min candles → live price (polled every 30 seconds)
-
-### NSE India (pre-open data)
-Vite proxies requests through `/nseapi` → `https://www.nseindia.com`
-
-- NSE requires session cookies — `vite.config.js` auto-fetches and refreshes them every 4 minutes
-- If pre-open data stops loading, restart the dev server (`Ctrl+C` then `npm run dev`)
-
-> ⚠️ **These proxies only work when `npm run dev` is running.** They are built into the Vite development server.
-
----
-
-## Risk Planner — How It Works
+## Risk Planner — Trade Math
 
 | Field | Logic |
 |---|---|
-| Entry | Current live price (auto-filled) |
-| Stop Loss | Entry ± 15-day average range in ₹ |
-| Target | Entry ± 15-day average range in ₹ |
-| Qty | `floor(Capital × 5 / Entry)` using Groww 5× intraday margin |
+| Entry | Current live price (auto-filled on symbol lookup) |
+| Stop Loss | Entry ± 15-day average daily range (₹) |
+| Target | Entry ± 15-day average daily range (₹) |
+| Qty | `floor(Capital × 5 / Entry)` — Groww 5× intraday margin |
 | Live P&L | Polled every 30 seconds from Yahoo Finance |
-
-Positions are saved in **browser localStorage** and reset daily.
 
 ---
 
 ## Position Tracking
 
-1. Add your positions using **+ Add Position**
+1. Add positions via **+ Add Position**
 2. Click **▶ Start** in the tracking bar
-3. The app polls live price every 30 seconds and:
-   - Detects **SL HIT** or **Target HIT** automatically
-   - Logs each event with timestamp, price, and P&L
+3. App polls live price every 30s and auto-detects:
+   - **🔴 SL HIT** — logs time, price, final P&L
+   - **🎯 Target HIT** — logs time, price, final P&L
 4. Use **🚪 Exit Position** to manually exit at any price
-5. Click **⏹ Stop** to pause tracking
-6. Click **↺ Reset** to clear all tracking logs
+5. **↾ Reset** clears all tracking logs
+
+---
+
+## Data Sources
+
+### Yahoo Finance
+Proxied via `/yahooapi` → `https://query1.finance.yahoo.com`
+- 15-day daily OHLC → average range for SL/Target
+- 5-min intraday → Gap %, today High/Low
+- 1-min candles → live price (every 30s)
+
+### NSE India
+Proxied via `/nseapi` → `https://www.nseindia.com`
+- Pre-open IEP, volume, % change for all Nifty 50 stocks
+- NSE requires session cookies — Vite auto-refreshes them every 4 minutes
+- If pre-open data stops loading: restart `npm run dev`
+
+> Both proxies **only work while `npm run dev` is running**.
 
 ---
 
@@ -180,34 +192,18 @@ Positions are saved in **browser localStorage** and reset daily.
 
 | Problem | Fix |
 |---|---|
-| `npm install` fails | Make sure Node.js v18+ is installed |
-| App shows blank page | Open browser console (F12) and check for errors |
-| Pre-open data not loading | Restart the dev server — NSE cookies may have expired |
-| Yahoo price not loading | Check internet connection; Yahoo may rate-limit briefly |
-| Port 8443 already in use | Kill the process using it, or temporarily remove `strictPort: true` from `vite.config.js` |
+| Blank page / app not loading | Open browser console (F12) → check for errors |
+| Pre-open data not loading | Restart dev server — NSE cookies may have expired |
+| Yahoo price not loading | Check internet connection; retry in 30 seconds |
+| Port 8443 already in use | Change `port` in `vite.config.js` to any free port |
+| Forgot password | No reset option (local only) — clear `rp_users` from browser DevTools → Application → localStorage, then sign up again |
+| Lost positions after clearing browser data | Use **↓ Export** regularly to keep a backup JSON |
 
 ---
 
 ## Important Notes
 
-- **Personal use only** — Yahoo Finance and NSE APIs are public but not meant for commercial scraping
-- **No real-time guarantee** — Yahoo Finance free tier has ~15-minute delay outside market hours; during market hours 1-min data is near real-time
-- **localStorage resets daily** — positions from yesterday do not carry over (by design)
-- **5× margin is Groww intraday only** — positions are auto-squared off at 3:20 PM; always exit manually before 3:10 PM to avoid ₹50 + GST penalty
-
----
-
-## Build for Static Hosting (Advanced)
-
-> ⚠️ The proxies **will not work** in a static build. Use this only if you set up your own backend proxy.
-
-```bash
-npm run build
-```
-
-Output goes to `dist/`. You can serve it with:
-```bash
-npm run preview   # local preview of the built app
-```
-
-For full deployment with working APIs, you would need to set up a separate Node.js/Express proxy server — not covered here since this tool is designed for local use.
+- **Personal use only** — Yahoo Finance and NSE APIs are public but not for commercial scraping
+- **5× margin is Groww intraday only** — auto squared-off at 3:20 PM; Groww charges ₹50 + GST penalty if auto-squared; always exit manually before 3:10 PM
+- **localStorage resets on browser data clear** — export your positions regularly as a backup
+- **No .env file needed** — the app has zero external service dependencies
