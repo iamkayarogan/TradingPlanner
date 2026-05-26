@@ -23,8 +23,16 @@ function saveUsers(users) {
 // ── Public API ────────────────────────────────────────────────────────────────
 
 export function getSession() {
-  try { return JSON.parse(localStorage.getItem(SESSION_KEY) || 'null') }
-  catch { return null }
+  try {
+    const s = JSON.parse(localStorage.getItem(SESSION_KEY) || 'null')
+    // Validate it's a proper local-auth session (must have id + email)
+    if (s && s.id && s.email) return s
+    // Stale / invalid session (e.g. from old Firebase/Supabase) — clear it
+    localStorage.removeItem(SESSION_KEY)
+    return null
+  } catch {
+    return null
+  }
 }
 
 export async function signUp({ name, email, password }) {

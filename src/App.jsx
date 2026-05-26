@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { getSession, signOut } from './services/localAuth'
 import MarketStatus from './components/MarketStatus'
 import RiskPlanner, { useRiskPlanner } from './components/RiskPlanner'
@@ -9,10 +9,10 @@ function AppContent({ user, onLogout }) {
   const { settings, setSettings, positions, addPosition, removePosition, updatePosition } =
     useRiskPlanner(user.id)
 
-  useState(() => {
+  useEffect(() => {
     const id = setInterval(() => setTick(t => t + 1), 1000)
     return () => clearInterval(id)
-  })
+  }, [])
 
   return (
     <div className="min-h-screen bg-bg text-gray-200">
