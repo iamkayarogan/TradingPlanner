@@ -35,6 +35,9 @@ setInterval(refreshCookies, 4 * 60 * 1000)
 export default defineConfig({
   plugins: [react()],
   server: {
+    port: 8443,
+    strictPort: true,
+    allowedHosts: ['kayaroganamv-cictt0n1-8443.zcodecorp.in'],
     proxy: {
       '/yahooapi': {
         target: 'https://query1.finance.yahoo.com',

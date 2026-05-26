@@ -1,5 +1,9 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { fetchSymbolInfo, fetchLivePrice, fetchGapInfo } from '../services/orb'
+import { db } from '../services/firebase'
+import {
+  doc, setDoc, onSnapshot, getDoc, serverTimestamp,
+} from 'firebase/firestore'
 
 // ── Persistence ───────────────────────────────────────────────────────────────
 const DEFAULTS = { dailyLossLimit: 2000, maxPositions: 3 }
@@ -44,12 +48,59 @@ function rrLabel(risk, reward) {
 }
 
 // ── Hook ─────────────────────────────────────────────────────────────────────
-export function useRiskPlanner() {
+export function useRiskPlanner(userId = null) {
   const [settings,  setSettings]  = useState(loadSettings)
   const [positions, setPositions] = useState(loadPositions)
+  const [syncing,   setSyncing]   = useState(false)
+  const remoteWriting = useRef(false)   // prevent echo: our write → snapshot → re-set
 
-  useEffect(() => { localStorage.setItem('rp2_settings', JSON.stringify(settings)) }, [settings])
-  useEffect(() => { persistPositions(positions) }, [positions])
+  // ── Firestore: real-time positions listener ───────────────────
+  useEffect(() => {
+    if (!userId) return
+    const posRef = doc(db, 'users', userId, 'sessions', todayKey())
+
+    const unsub = onSnapshot(posRef, snap => {
+      if (remoteWriting.current) return  // ignore our own writes
+      const data = snap.data()
+      if (data?.positions) {
+        setPositions(data.positions)
+        persistPositions(data.positions)
+      }
+    })
+    return () => unsub()
+  }, [userId])
+
+  // ── Firestore: load settings on login ────────────────────────
+  useEffect(() => {
+    if (!userId) return
+    getDoc(doc(db, 'users', userId, 'config', 'settings')).then(snap => {
+      if (snap.exists()) setSettings(s => ({ ...s, ...snap.data() }))
+    })
+  }, [userId])
+
+  // ── Persist positions (localStorage + Firestore) ──────────────
+  useEffect(() => {
+    persistPositions(positions)
+    if (!userId) return
+    remoteWriting.current = true
+    setSyncing(true)
+    setDoc(doc(db, 'users', userId, 'sessions', todayKey()), {
+      positions,
+      updatedAt: serverTimestamp(),
+    })
+      .catch(console.error)
+      .finally(() => {
+        setSyncing(false)
+        setTimeout(() => { remoteWriting.current = false }, 500)
+      })
+  }, [positions, userId])
+
+  // ── Persist settings (localStorage + Firestore) ───────────────
+  useEffect(() => {
+    localStorage.setItem('rp2_settings', JSON.stringify(settings))
+    if (!userId) return
+    setDoc(doc(db, 'users', userId, 'config', 'settings'), settings).catch(console.error)
+  }, [settings, userId])
 
   function addPosition(p) {
     setPositions(prev => [...prev, { ...p, id: Date.now() }])
@@ -63,7 +114,7 @@ export function useRiskPlanner() {
     setPositions(prev => prev.map(p => p.id === id ? { ...p, ...updates } : p))
   }
 
-  return { settings, setSettings, positions, addPosition, removePosition, updatePosition }
+  return { settings, setSettings, positions, addPosition, removePosition, updatePosition, syncing }
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -967,6 +1018,56 @@ export default function RiskPlanner({ positions, settings, onSettingsChange, onA
     })
   }
 
+  // ── Export / Import ───────────────────────────────────────────
+  const importRef = useRef(null)
+
+  function handleExport() {
+    const data = {
+      exportedAt: new Date().toISOString(),
+      date: new Date().toLocaleDateString('en-IN'),
+      positions,
+    }
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
+    const url  = URL.createObjectURL(blob)
+    const a    = document.createElement('a')
+    a.href     = url
+    a.download = `risk-planner-${new Date().toISOString().slice(0, 10)}.json`
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
+  function handleImportFile(e) {
+    const file = e.target.files[0]
+    if (!file) return
+    const reader = new FileReader()
+    reader.onload = ev => {
+      try {
+        const data     = JSON.parse(ev.target.result)
+        const imported = Array.isArray(data.positions) ? data.positions : []
+        if (!imported.length) { alert('No positions found in file'); return }
+        if (!window.confirm(`Import ${imported.length} position(s)? This will replace your current positions.`)) return
+        // Remove existing, then add imported
+        positions.forEach(p => onRemove(p.id))
+        imported.forEach(p => onAdd({
+          symbol:         p.symbol,
+          direction:      p.direction,
+          entry:          p.entry,
+          qty:            p.qty,
+          sl:             p.sl,
+          target:         p.target,
+          trackingStatus: 'idle',
+          activityLog:    [],
+          finalPnl:       null,
+          exitPrice:      null,
+        }))
+      } catch {
+        alert('Invalid file — could not read positions')
+      }
+      e.target.value = ''   // reset so same file can be re-imported
+    }
+    reader.readAsText(file)
+  }
+
   // Aggregate totals
   const totalRisk   = positions.reduce((s, p) => s + (calcRisk(p.direction, p.entry, p.qty, p.sl) ?? 0), 0)
   const totalReward = positions.reduce((s, p) => s + (calcReward(p.direction, p.entry, p.qty, p.target) ?? 0), 0)
@@ -1014,6 +1115,20 @@ export default function RiskPlanner({ positions, settings, onSettingsChange, onA
           )}
         </div>
         <div className="flex items-center gap-1.5">
+          {/* Export */}
+          {positions.length > 0 && (
+            <button onClick={handleExport} title="Export positions to JSON"
+              className="text-[10px] px-2 py-1 rounded border border-border/40 text-muted hover:text-white hover:border-gray-500 transition-colors">
+              ↓ Export
+            </button>
+          )}
+          {/* Import */}
+          <button onClick={() => importRef.current?.click()} title="Import positions from JSON"
+            className="text-[10px] px-2 py-1 rounded border border-border/40 text-muted hover:text-white hover:border-gray-500 transition-colors">
+            ↑ Import
+          </button>
+          <input ref={importRef} type="file" accept=".json" onChange={handleImportFile} className="hidden" />
+
           <button
             onClick={() => showForm ? closeForm() : openAdd()}
             className={`text-[10px] px-2.5 py-1 rounded font-semibold transition-colors border ${

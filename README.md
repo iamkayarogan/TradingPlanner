@@ -85,7 +85,7 @@ npm run dev
 
 Open your browser and go to:
 ```
-http://localhost:5173
+http://localhost:8443
 ```
 
 The app is ready. Keep the terminal open while using it.
@@ -101,7 +101,7 @@ cd TradingTool
 npm run dev
 ```
 
-Then open `http://localhost:5173` in your browser.
+Then open `http://localhost:8443` in your browser.
 
 To stop: press `Ctrl + C` in the terminal.
 
@@ -184,7 +184,7 @@ Positions are saved in **browser localStorage** and reset daily.
 | App shows blank page | Open browser console (F12) and check for errors |
 | Pre-open data not loading | Restart the dev server — NSE cookies may have expired |
 | Yahoo price not loading | Check internet connection; Yahoo may rate-limit briefly |
-| Port 5173 already in use | Vite will auto-use next port (5174, 5175…) — check terminal output |
+| Port 8443 already in use | Kill the process using it, or temporarily remove `strictPort: true` from `vite.config.js` |
 
 ---
 
