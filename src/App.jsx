@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react'
-import { onAuthStateChanged, signOut } from 'firebase/auth'
-import { auth } from './services/firebase'
+import { supabase } from './services/supabase'
 import MarketStatus from './components/MarketStatus'
 import RiskPlanner, { useRiskPlanner } from './components/RiskPlanner'
 import AuthModal from './components/AuthModal'
@@ -8,12 +7,14 @@ import AuthModal from './components/AuthModal'
 function AppContent({ user }) {
   const [tick, setTick] = useState(0)
   const { settings, setSettings, positions, addPosition, removePosition, updatePosition, syncing } =
-    useRiskPlanner(user?.uid ?? null)
+    useRiskPlanner(user?.id ?? null)
 
   useEffect(() => {
     const id = setInterval(() => setTick(t => t + 1), 1000)
     return () => clearInterval(id)
   }, [])
+
+  const displayName = user?.user_metadata?.full_name || user?.email || 'User'
 
   return (
     <div className="min-h-screen bg-bg text-gray-200">
@@ -35,11 +36,11 @@ function AppContent({ user }) {
 
             {/* User info + logout */}
             <div className="flex items-center gap-2 border-l border-border pl-3 ml-1">
-              <span className="text-[10px] text-muted hidden sm:block">
-                {user.displayName || user.email}
+              <span className="text-[10px] text-muted hidden sm:block truncate max-w-[140px]">
+                {displayName}
               </span>
               <button
-                onClick={() => signOut(auth)}
+                onClick={() => supabase.auth.signOut()}
                 className="text-[10px] px-2 py-1 rounded border border-border/40 text-muted hover:text-white hover:border-gray-500 transition-colors">
                 Log out
               </button>
@@ -64,18 +65,26 @@ function AppContent({ user }) {
 }
 
 export default function App() {
-  const [user,        setUser]        = useState(undefined)  // undefined = loading
+  const [user,        setUser]        = useState(undefined)
   const [authChecked, setAuthChecked] = useState(false)
 
   useEffect(() => {
-    const unsub = onAuthStateChanged(auth, u => {
-      setUser(u)
+    // Check existing session
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setUser(session?.user ?? null)
       setAuthChecked(true)
     })
-    return () => unsub()
+
+    // Listen for login / logout events
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user ?? null)
+      setAuthChecked(true)
+    })
+
+    return () => subscription.unsubscribe()
   }, [])
 
-  // Loading splash while Firebase checks existing session
+  // Loading splash while Supabase checks session
   if (!authChecked) {
     return (
       <div className="min-h-screen bg-bg flex items-center justify-center">
@@ -87,9 +96,7 @@ export default function App() {
     )
   }
 
-  // Not logged in — show auth modal
   if (!user) return <AuthModal />
 
-  // Logged in — show full app
   return <AppContent user={user} />
 }

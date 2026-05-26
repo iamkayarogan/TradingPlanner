@@ -1,9 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { fetchSymbolInfo, fetchLivePrice, fetchGapInfo } from '../services/orb'
-import { db } from '../services/firebase'
-import {
-  doc, setDoc, onSnapshot, getDoc, serverTimestamp,
-} from 'firebase/firestore'
+import { supabase } from '../services/supabase'
 
 // ── Persistence ───────────────────────────────────────────────────────────────
 const DEFAULTS = { dailyLossLimit: 2000, maxPositions: 3 }
@@ -47,60 +44,90 @@ function rrLabel(risk, reward) {
   return `1 : ${(reward / risk).toFixed(2)}`
 }
 
+// ── Supabase helpers ──────────────────────────────────────────────────────────
+async function sbLoad(userId) {
+  const { data } = await supabase
+    .from('trading_sessions')
+    .select('positions_data, settings_data')
+    .eq('user_id', userId)
+    .eq('date', todayKey())
+    .maybeSingle()
+  return data
+}
+
+async function sbSave(userId, positions, settings) {
+  await supabase.from('trading_sessions').upsert({
+    user_id:       userId,
+    date:          todayKey(),
+    positions_data: positions,
+    settings_data:  settings,
+    updated_at:    new Date().toISOString(),
+  }, { onConflict: 'user_id,date' })
+}
+
 // ── Hook ─────────────────────────────────────────────────────────────────────
 export function useRiskPlanner(userId = null) {
   const [settings,  setSettings]  = useState(loadSettings)
   const [positions, setPositions] = useState(loadPositions)
   const [syncing,   setSyncing]   = useState(false)
-  const remoteWriting = useRef(false)   // prevent echo: our write → snapshot → re-set
+  const remoteWriting = useRef(false)
 
-  // ── Firestore: real-time positions listener ───────────────────
+  // ── Load from Supabase when user logs in ──────────────────────
   useEffect(() => {
     if (!userId) return
-    const posRef = doc(db, 'users', userId, 'sessions', todayKey())
-
-    const unsub = onSnapshot(posRef, snap => {
-      if (remoteWriting.current) return  // ignore our own writes
-      const data = snap.data()
-      if (data?.positions) {
-        setPositions(data.positions)
-        persistPositions(data.positions)
+    sbLoad(userId).then(data => {
+      if (data?.positions_data) {
+        setPositions(data.positions_data)
+        persistPositions(data.positions_data)
+      }
+      if (data?.settings_data) {
+        setSettings(s => ({ ...s, ...data.settings_data }))
       }
     })
-    return () => unsub()
   }, [userId])
 
-  // ── Firestore: load settings on login ────────────────────────
+  // ── Real-time sync: listen for changes from other browsers ────
   useEffect(() => {
     if (!userId) return
-    getDoc(doc(db, 'users', userId, 'config', 'settings')).then(snap => {
-      if (snap.exists()) setSettings(s => ({ ...s, ...snap.data() }))
-    })
+    const channel = supabase
+      .channel(`session-${userId}`)
+      .on('postgres_changes', {
+        event:  '*',
+        schema: 'public',
+        table:  'trading_sessions',
+        filter: `user_id=eq.${userId}`,
+      }, payload => {
+        if (remoteWriting.current) return  // ignore our own writes
+        const d = payload.new
+        if (d?.positions_data) {
+          setPositions(d.positions_data)
+          persistPositions(d.positions_data)
+        }
+      })
+      .subscribe()
+    return () => supabase.removeChannel(channel)
   }, [userId])
 
-  // ── Persist positions (localStorage + Firestore) ──────────────
+  // ── Save positions (localStorage + Supabase) ──────────────────
   useEffect(() => {
     persistPositions(positions)
     if (!userId) return
     remoteWriting.current = true
     setSyncing(true)
-    setDoc(doc(db, 'users', userId, 'sessions', todayKey()), {
-      positions,
-      updatedAt: serverTimestamp(),
-    })
+    sbSave(userId, positions, settings)
       .catch(console.error)
       .finally(() => {
         setSyncing(false)
-        setTimeout(() => { remoteWriting.current = false }, 500)
+        setTimeout(() => { remoteWriting.current = false }, 600)
       })
-  }, [positions, userId])
+  }, [positions])   // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Persist settings (localStorage + Firestore) ───────────────
+  // ── Save settings (localStorage + Supabase) ───────────────────
   useEffect(() => {
     localStorage.setItem('rp2_settings', JSON.stringify(settings))
     if (!userId) return
-    setDoc(doc(db, 'users', userId, 'config', 'settings'), settings).catch(console.error)
-  }, [settings, userId])
+    sbSave(userId, positions, settings).catch(console.error)
+  }, [settings])    // eslint-disable-line react-hooks/exhaustive-deps
 
   function addPosition(p) {
     setPositions(prev => [...prev, { ...p, id: Date.now() }])
